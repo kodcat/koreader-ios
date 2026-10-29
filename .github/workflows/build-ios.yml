@@ -1,0 +1,55 @@
+yaml
+name: Build KOReader iOS IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Homebrew Dependencies
+        run: |
+          brew install make findutils gnu-getopt util-linux sdl3 meson ninja
+
+      - name: Generate Xcode Project
+        run: |
+          # Prioritize GNU build tools over default macOS ones
+          export PATH="$(brew --prefix)/opt/findutils/libexec/gnubin:$(brew --prefix)/opt/gnu-getopt/bin:$(brew --prefix)/opt/make/libexec/gnubin:$(brew --prefix)/opt/util-linux/bin:${PATH}"
+          export KO_APP_VERSION="v2026.10"
+          
+          # Force meson build tool args to skip running the test suite
+          export MESON_TESTARGS="--no-tests"
+          
+          gmake TARGET=ios xcodeproj
+
+      - name: Build App Bundle via Xcode
+        run: |
+          xcodebuild -project KOReader.xcodeproj \
+            -scheme KOReader \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            clean build
+
+      - name: Package App into Unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/Release-iphoneos/KOReader.app Payload/
+          zip -r KOReader-Unsigned.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KOReader-iOS-Bypass-Sign
+          path: KOReader-Unsigned.ipa
